@@ -11,7 +11,7 @@ TOKEN_FILE = "tokens.json"
 API_URL = "https://xtytdtyj-jwt.up.railway.app/token"
 G_TOKEN = os.environ.get("G_TOKEN") # GitHub Token for pushing changes
 REPO_NAME = "jjppjjpp0099-ux/OB53like-api"
-BOT_WEBHOOK_URL = "https://your-bot-app.onrender.com/notify_update" # Aapka Render Bot URL
+BOT_WEBHOOK_URL = "https://telegram-like-bot-8ivj.onrender.com/notify_update" # Aapka Render Bot URL
 
 def read_uidpass():
     with open(UIDPASS_FILE, "r", encoding="utf-8") as f:
