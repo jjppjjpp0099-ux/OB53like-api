@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import asyncio
+import subprocess # Naya: update_tokens.py chalane ke liye
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 from google.protobuf.json_format import MessageToJson
@@ -14,6 +15,18 @@ from google.protobuf.message import DecodeError
 import base64
 
 app = Flask(__name__)
+
+# --- NAYA FEATURE: Auto Update Trigger ---
+# Ye route aapke purane code mein nahi tha, ise add kiya gaya hai
+@app.route('/trigger-update', methods=['GET'])
+def trigger_update():
+    try:
+        # Ye background mein update_tokens.py ko execute karega
+        subprocess.Popen(["python3", "update_tokens.py"])
+        return jsonify({"status": "success", "message": "Update script triggered"}), 200
+    except Exception as e:
+        app.logger.error(f"Trigger error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 def load_tokens():
     try:
