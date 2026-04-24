@@ -1,95 +1,103 @@
 import requests
 import json
+import base64
 import time
 import os
-from datetime import datetime, timedelta
 from github import Github
 
-# --- CONFIGURATION ---
+# --- Configuration ---
 UIDPASS_FILE = "uidpass.json"
 TOKEN_FILE = "tokens.json"
 API_URL = "https://xtytdtyj-jwt.up.railway.app/token"
+G_TOKEN = os.environ.get("G_TOKEN") # GitHub Token for pushing changes
+REPO_NAME = "jjppjjpp0099-ux/OB53like-api"
+BOT_WEBHOOK_URL = "https://your-bot-app.onrender.com/notify_update" # Aapka Render Bot URL
 
-# GitHub Config (Naya Repo)
-G_TOKEN = os.environ.get("G_TOKEN")
-REPO_NAME = "jjppjjpp0099-ux/OB53like-api" # Aapka naya repo
+def read_uidpass():
+    with open(UIDPASS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-# Bot Notification Config
-BOT_API_URL = "https://ob-53like-api.vercel.app/update_notify" # Bot ko signal bhejne ke liye
-
-# Timing Logic
-EXPIRE_MINUTES = 480  # 8 Ghante (Andazan)
-UPDATE_BEFORE = 10    # 10 Minute pehle update karega
-CHECK_INTERVAL = 60   # Har 1 minute mein check karega
-
-def fetch_tokens_from_api():
-    """Railway API se naye tokens nikalta hai"""
+def is_token_expired_soon(token):
     try:
-        with open(UIDPASS_FILE, "r", encoding="utf-8") as f:
-            uidpass_list = json.load(f)
+        # JWT decode without library for efficiency
+        payload = token.split('.')[1]
+        payload += '=' * (-len(payload) % 4)
+        decoded = json.loads(base64.urlsafe_b64decode(payload).decode('utf-8'))
+        exp = decoded.get('exp')
+        if not exp: return True
         
-        new_tokens = []
-        for item in uidpass_list:
-            url = f"{API_URL}?uid={item['uid']}&password={item['password']}"
-            response = requests.get(url, timeout=15)
-            data = response.json()
-            if data.get("token"):
-                new_tokens.append({"token": data.get("token")})
-        return new_tokens
+        remaining_time = exp - time.time()
+        # 10 minutes (600 seconds) check
+        return remaining_time < 600
+    except Exception:
+        return True
+
+def fetch_token(uid, password):
+    url = f"{API_URL}?uid={uid}&password={password}"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("token")
     except Exception as e:
-        print(f"Error fetching tokens: {e}")
+        print(f"Error fetching token for UID {uid}: {e}")
         return None
 
 def update_github_repo(token_list):
-    """Naye repo OB53like-api mein tokens.json update karta hai"""
+    if not G_TOKEN:
+        print("GitHub Token not found!")
+        return False
     try:
         g = Github(G_TOKEN)
         repo = g.get_repo(REPO_NAME)
         contents = repo.get_contents(TOKEN_FILE)
-        
-        new_content = json.dumps(token_list, indent=4)
+        new_content = json.dumps(token_list, ensure_ascii=False, indent=4)
         repo.update_file(contents.path, "Auto Update Tokens", new_content, contents.sha)
         return True
     except Exception as e:
-        print(f"GitHub Update Error: {e}")
+        print(f"GitHub Update Failed: {e}")
         return False
 
 def notify_bot():
-    """bot.py ko inform karta hai takki wo telegram pe message bheje"""
     try:
-        # Hum bot ko ek request bhejenge jise bot.py handle karega
-        requests.get(BOT_API_URL)
+        requests.get(BOT_WEBHOOK_URL)
     except:
         pass
 
-def main_process():
-    print(f"[{datetime.now()}] Starting Token Update...")
-    tokens = fetch_tokens_from_api()
-    if tokens:
-        if update_github_repo(tokens):
-            print("✅ Successfully updated GitHub.")
-            notify_bot()
-            return True
-    return False
+def main():
+    try:
+        with open(TOKEN_FILE, "r") as f:
+            current_tokens = json.load(f)
+    except:
+        current_tokens = []
+
+    # Check if first token is expiring (Assuming all tokens are from same source/time)
+    needs_update = True
+    if current_tokens:
+        token_to_check = current_tokens[0].get("token")
+        if not is_token_expired_soon(token_to_check):
+            needs_update = False
+            print("Tokens are still valid. No update needed.")
+
+    if needs_update:
+        print("Tokens expiring soon or invalid. Updating...")
+        uidpass_list = read_uidpass()
+        new_tokens = []
+        for item in uidpass_list:
+            token = fetch_token(item["uid"], item["password"])
+            if token:
+                new_tokens.append({"token": token})
+        
+        if new_tokens:
+            # Update Local & GitHub
+            with open(TOKEN_FILE, "w", encoding="utf-8") as f:
+                json.dump(new_tokens, f, ensure_ascii=False, indent=4)
+            
+            if update_github_repo(new_tokens):
+                print("GitHub repo updated.")
+                notify_bot() # Tell Telegram Bot
+        else:
+            print("No new tokens could be fetched.")
 
 if __name__ == "__main__":
-    print("🚀 Auto-Updater Started...")
-    # Pehli baar update karega start hote hi
-    last_run_time = datetime.now()
-    main_process()
-
-    while True:
-        now = datetime.now()
-        time_diff = (now - last_run_time).total_seconds() / 60
-
-        # Logic: 7 ghante 50 minute baad auto-update
-        if time_diff >= (EXPIRE_MINUTES - UPDATE_BEFORE):
-            success = main_process()
-            if success:
-                last_run_time = datetime.now()
-            else:
-                print("❌ Update failed, retrying in 5 minutes...")
-                time.sleep(300) # Fail hone pe 5 min baad phir try karega
-                continue
-
-        time.sleep(CHECK_INTERVAL)
+    main()
